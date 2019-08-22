@@ -42,7 +42,7 @@ $VERBOSE = $false
 # @VARIABLE: FORCE
 # @DESCRIPTION:
 # Whether to force installation and overwrite files.
-$FORCE = false
+$FORCE = $false
 
 # @VARIABLE: GHCUP_INSTALL_BASE_PREFIX
 # @DESCRIPTION:
@@ -199,6 +199,22 @@ Function Shift-Args-Left
     $script:args = $rest 
 }
 
+Function Kill-Process($message) 
+{
+    Write-Host "$message failed!" -ForegroundColor Red 
+    Exit 2
+}
+
+Function Try-Command($command)
+{
+    $cmd = Invoke-Expression -Command "$command -ErrorAction SilentlyContinue"
+
+    if (-not $cmd) 
+    {
+        Kill-Process $command
+    }
+}
+
 while ($args.Length -gt 0)
 {
     switch ($args.get(0))
@@ -220,8 +236,29 @@ while ($args.Length -gt 0)
         }
         default ## startup tasks ##
         {
+            New-Item -Path $INSTALL_BASE -ItemType Directory -Force *> $null
+            New-Item -Path $BIN_LOCATION -ItemType Directory -Force  *> $null
+            New-Item -Path $CACHE_LOCATION -ItemType Directory -Force *> $null
 
+            # clean up old meta files
+            $meta_filename = [System.IO.Path]::GetFileName($META_VERSION_URL)
+            if (Test-Path -Path "$CACHE_LOCATION/$meta_filename")
+            {
+                Try-Command "Remove-Item $CACHE_LOCATION/$meta_filename *> $null" 
+            }
+
+            $meta_downloadurl = [System.IO.Path]::GetFileName($META_DOWNLOAD_URL)
+            if (Test-Path -Path "$CACHE_LOCATION/$meta_filename")
+            {
+                Try-Command "Remove-Item $CACHE_LOCATION/$meta_downloadurl *> $null"
+            }
+
+            Exit 2
         }
-        
     }
 }
+
+
+# Things to not forget to remove/review: 
+# need to remove "-Force" for the function right after the startup tasks
+# New-Item -Path $INSTALL_BASE -ItemType Directory -Force
