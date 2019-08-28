@@ -322,7 +322,6 @@ Function Get-List($tool, $raw_format, $criteria)
 
 Function Shift-Args-Left 
 {
-
     $head,$rest = $script:args 
     $script:args = $rest 
 }
