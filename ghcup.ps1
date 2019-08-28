@@ -56,25 +56,35 @@ $GHCUP_INSTALL_BASE_PREFIX = $HOME
 # @VARIABLE: INSTALL_BASE
 # @DESCRIPTION:
 # The main install directory where all ghcup stuff happens.
-$INSTALL_BASE = "$GHCUP_INSTALL_BASE_PREFIX/.ghcup"
+$INSTALL_BASE = "$GHCUP_INSTALL_BASE_PREFIX\.ghcup"
 
 # @VARIABLE: GHC_LOCATION
 # @DESCRIPTION:
 # The location where ghcup will install different ghc versions.
 # This is expected to be a subdirectory of INSTALL_BASE.
-$GHC_LOCATION = "$INSTALL_BASE/ghc"
+$GHC_LOCATION = "$INSTALL_BASE\ghc"
 
 # @VARIABLE: BIN_LOCATION
 # @DESCRIPTION:
 # The location where ghcup will create symlinks for GHC binaries.
 # This is expected to be a subdirectory of INSTALL_BASE.
-$BIN_LOCATION = "$INSTALL_BASE/bin"
+$BIN_LOCATION = "$INSTALL_BASE\bin"
 
 # @VARIABLE: CACHE_LOCATION
 # @DESCRIPTION:
 # The location where ghcup will put tarballs for caching.
 # This is expected to be a subdirectory of INSTALL_BASE.
-$CACHE_LOCATION = "$INSTALL_BASE/cache"
+$CACHE_LOCATION = "$INSTALL_BASE\cache"
+
+# @VARIABLE: DOWNLOADER
+# @DESCRIPTION:
+# What program to use for downloading files.
+$DOWNLOADER = "Invoke-WebRequest -URI"
+
+# @VARIABLE: DOWNLOADER_OPTS
+# @DESCRIPTION:
+# Options passed to the download program.
+$DOWNLOADER_OPTS = "-OutFile"
 
 # @VARIABLE: GHC_DOWNLOAD_BASEURL
 # @DESCRIPTION:
@@ -100,7 +110,7 @@ $SCRIPT_UPDATE_URL = "${BASE_DOWNLOAD_URL}/ghcup"
 # DESCRIPTION:
 # The url of the meta file for getting
 # download information for ghc/cabal-install etc.
-$META_DOWNLOAD_URL = "${BASE_DOWNLOAD_URL}/.download-urls"
+$META_DOWNLOAD_URL ="${BASE_DOWNLOAD_URL}/.download-urls"
 
 # @VARIABLE: META_DOWNLOAD_FORMAT
 # DESCRIPTION:
@@ -113,7 +123,7 @@ $META_DOWNLOAD_FORMAT = "1"
 # DESCRIPTION:
 # The url of the meta file for getting
 # available versions for ghc/cabal-install etc.
-$META_VERSION_URL = "${BASE_DOWNLOAD_URL}/.available-versions}"
+$META_VERSION_URL = "${BASE_DOWNLOAD_URL}/.available-versions"
 
 # @VARIABLE: META_VERSION_FORMAT
 # DESCRIPTION:
@@ -133,6 +143,10 @@ $BUG_URL = "https://gitlab.haskell.org/haskell/ghcup/issues"
 $CACHING = $false
 
 
+# @FUNCTION: usage
+# @DESCRIPTION:
+# Print the help message for 'ghcup' to STDERR
+# and exit the script with status code 1.
 Function Write-Usage 
 {
     $compile = if ($VERBOSE) { "`n    compile            Compile and install GHC from source (UNSTABLE!!!)" } else { "" }
@@ -193,23 +207,136 @@ upgrade
     Exit 0
 }
 
+# @FUNCTION: list_usage
+# @DESCRIPTION:
+# Print the help message for 'ghcup list' to STDERR
+# and exit the script with status code 1.
+Function Write-List-Usage
+{
+    Write-Host @"
+ghcup-list
+Show available GHCs and other tools
+
+USAGE:
+    ${SCRIPT} list
+
+FLAGS:
+    -h, --help                             Prints help information
+    -t, --tool <all|ghc|cabal-install>     Tool to list versions for. Default is ghc only.
+    -c, --show-criteria <installed|set>    Show only installed or set tool versions
+    -r, --raw-format                       Raw format, for machine parsing
+
+DISCUSSION:
+    Prints tools (e.g. GHC and cabal-install) and their
+    available/installed/set versions.
+"@
+    Exit 1
+}
+
+# @FUNCTION: download_silent
+# @USAGE: <url>
+# @DESCRIPTION:
+# Downloads the given url as a file into the current directory, silent, unless
+# verbosity is on.
+$download_silent = {
+    param ($url, $opts)
+    echo "hello: $url $opts"
+    if (!$url)
+    {
+        Kill-Process "Internal error: no argument given to download"
+    }
+
+    if ($VERBOSE)
+    {
+        Try-Command "$DOWNLOADER $url $DOWNLOADER_OPTS $opts"
+    }
+    else
+    {
+        echo "in"
+        $progressPreference = 'silentlyContinue'
+        Try-Command "$DOWNLOADER $url $DOWNLOADER_OPTS $opts"
+        $progressPreference = 'Continue'
+    }
+    echo "done download!"
+}
+
+# @FUNCTION: Get-Meta-File-Version
+# @USAGE: <file> <metaver>
+# @DESCRIPTION:
+# Check that the given meta file has the same format version
+# as specified, otherwise die.
+Function Get-Meta-File-Version($filepath, $format) {
+    echo "filepathsadasd: $filepath"
+    if (-not ($filepath -and $format)) { Kill-Process "Internal error: not enough arguments given to check_meta_file_version" }
+
+    $fileformat = Get-Content $filepath -TotalCount 1 | ForEach-Object { $_.Split("=")[1]}
+
+    if ($fileformat -ne $format) { Kill-Process "Unsupported meta file format, run: ${SCRIPT} upgrade" }
+}
+
+# @FUNCTION: get_meta_version_file
+# @DESCRIPTION:
+# Downloads the META_VERSION_URL
+# in case it hasn't been downloaded
+# during the execution of this script yet
+# and checks the format version matches
+# the expected one.
+# @STDOUT: file location
+Function Get-Meta-Version-File
+{
+    $meta_filename = [System.IO.Path]::GetFileName($META_VERSION_URL)
+    $meta_filepath = "$CACHE_LOCATION\$meta_filename"
+
+    if (-not (Test-Path -Path $meta_filepath))
+    {
+        $current_pwd = pwd 
+        try 
+        {
+            Set-Location -Path $CACHE_LOCATION
+            & $download_silent $META_VERSION_URL $meta_filename $> $null
+        } catch
+        {
+            echo "error!"
+            Kill-Process $PSItem.Exception.InnerExceptionMessage
+        } finally
+        {
+            Set-Location $current_pwd
+            echo "done set loc"
+        }
+    }
+
+    Get-Meta-File-Version $meta_filepath $META_VERSION_FORMAT
+
+    echo "done!!!"
+    return $meta_filepath
+}
+
+Function Get-List($tool, $raw_format, $criteria)
+{
+    $metafile = Get-Meta-Version-File
+    
+    if (!$metafile) { Kill-Process "failed to get meta file" }
+
+    if (-not ($raw_format)) { Write-Host -ForegroundColor Green "Available versions:" }
+}
+
 Function Shift-Args-Left 
 {
+
     $head,$rest = $script:args 
     $script:args = $rest 
 }
 
 Function Kill-Process($message) 
 {
-    Write-Host "$message failed!" -ForegroundColor Red 
+    Write-Host $message -ForegroundColor Red 
     Exit 2
 }
 
-Function Try-Command($command)
+$try_command = Function Try-Command($command)
 {
     $cmd = Invoke-Expression -Command "$command -ErrorAction SilentlyContinue"
-
-    if (-not $cmd) 
+    if (!$?) 
     {
         Kill-Process $command
     }
@@ -252,8 +379,32 @@ while ($args.Length -gt 0)
             {
                 Try-Command "Remove-Item $CACHE_LOCATION/$meta_downloadurl *> $null"
             }
+            
+            switch ($args.get(0))
+            {
+                { $_ -ceq "list" } 
+                { 
+                    $raw_format = $false
+                    $tool = "ghc"
+                    $show_criteria
+                    Shift-Args-Left
 
-            Exit 2
+                    while ($args.Length -gt 0 )
+                    {
+                        switch ($args.get(0))
+                        {
+                            { $_ -cin @("-h", "--help")          } { Write-List-Usage }
+                            { $_ -cin @("-t", "--tool")          } { $tool = $args.get(1); Shift-Args-Left; Shift-Args-Left }
+                            { $_ -cin @("-c", "--show-criteria") } { $show_criteria = $args.get(1); Shift-Args-Left; Shift-Args-Left }
+                            { $_ -cin @("-r", "--raw-format")    } { $raw_format = $true; Shift-Args-Left }
+                            default { Write-List-Usage }
+                        }
+
+                    }
+                   Get-List $tool $raw_format $show_criteria
+                   break;
+                }
+            }
         }
     }
 }
